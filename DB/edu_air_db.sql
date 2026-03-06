@@ -55,8 +55,6 @@ CREATE TABLE `attendance` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `student_id` (`student_id`,`attendance_date`,`shift_type`),
-  UNIQUE KEY `uniq_student_date_shift` (`student_id`,`attendance_date`,`shift_type`),
   UNIQUE KEY `uq_attendance_unique` (`school_id`,`student_id`,`attendance_date`,`shift_type`),
   KEY `idx_attendance_student_date` (`student_id`,`attendance_date`),
   KEY `idx_attendance_school_date` (`school_id`,`attendance_date`),
@@ -128,7 +126,6 @@ CREATE TABLE `classes` (
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_classes_school` (`school_id`),
-  CONSTRAINT `classes_ibfk_1` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`),
   CONSTRAINT `fk_classes_school` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -159,7 +156,6 @@ CREATE TABLE `parent_students` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uniq_parent_student` (`parent_user_id`,`student_id`),
   UNIQUE KEY `uq_parent_students_parent_student` (`parent_user_id`,`student_id`),
   KEY `fk_parent_students_student` (`student_id`),
   CONSTRAINT `fk_parent_students_parent` FOREIGN KEY (`parent_user_id`) REFERENCES `users` (`id`),
@@ -230,7 +226,6 @@ CREATE TABLE `student_classes` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uniq_student_class` (`student_id`,`class_id`),
   UNIQUE KEY `uq_student_class` (`student_id`,`class_id`),
   KEY `idx_student_classes_student` (`student_id`),
   KEY `idx_student_classes_class` (`class_id`),
@@ -304,7 +299,6 @@ CREATE TABLE `teacher_classes` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uniq_teacher_class` (`teacher_id`,`class_id`),
   UNIQUE KEY `uq_teacher_class` (`teacher_id`,`class_id`),
   KEY `idx_teacher_classes_teacher` (`teacher_id`),
   KEY `idx_teacher_classes_class` (`class_id`),
@@ -348,13 +342,9 @@ CREATE TABLE `teachers` (
   UNIQUE KEY `uq_teachers_school_staff_code` (`school_id`,`staff_code`),
   KEY `idx_teachers_school` (`school_id`),
   KEY `idx_teachers_school_status` (`school_id`,`status`),
-  KEY `fk_teachers_homeroom_class_id` (`homeroom_class_id`),
   CONSTRAINT `fk_teachers_homeroom_class` FOREIGN KEY (`homeroom_class_id`) REFERENCES `classes` (`id`),
-  CONSTRAINT `fk_teachers_homeroom_class_id` FOREIGN KEY (`homeroom_class_id`) REFERENCES `classes` (`id`),
   CONSTRAINT `fk_teachers_school` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`),
-  CONSTRAINT `fk_teachers_school_id` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`),
-  CONSTRAINT `fk_teachers_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`),
-  CONSTRAINT `fk_teachers_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+  CONSTRAINT `fk_teachers_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -386,7 +376,6 @@ CREATE TABLE `users` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `email` (`email`),
   UNIQUE KEY `uq_users_email` (`email`),
   KEY `fk_users_school` (`school_id`),
   CONSTRAINT `fk_users_school` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`) ON DELETE RESTRICT,

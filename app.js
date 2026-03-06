@@ -8,9 +8,11 @@ const express = require('express');
 const cors = require('cors');
 
 const db = require("./config/db");
-const authRoutes = require('./routes/authRoutes');
-const schoolRoutes = require('./routes/schoolRoutes');
-const studentRoutes = require('./routes/studentRoutes');
+const authRoutes       = require('./src/features/auth/authRoutes');
+const schoolRoutes     = require('./src/features/schools/schoolsRoutes');
+const studentRoutes    = require('./src/features/students/studentsRoutes');
+const attendanceRoutes = require('./src/features/attendance/attendanceRoutes');
+const staffRoutes      = require('./src/features/staff/staffRoutes');
 
 // app22 create the express application server
 const app = express();
@@ -37,6 +39,12 @@ app.use('/api/schools', schoolRoutes);
 
 // Student routes
 app.use('/api/students', studentRoutes);
+
+// Attendance routes
+app.use('/api/attendance', attendanceRoutes);
+
+// Staff routes
+app.use('/api/staff', staffRoutes);
 
 
 // Global error handler — must be LAST, after all routes
