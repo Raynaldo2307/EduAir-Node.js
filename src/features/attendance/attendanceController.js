@@ -57,3 +57,31 @@ exports.deleteAttendance = async (req, res, next) => {
     return res.status(200).json({ message: 'Attendance record deleted successfully' });
   } catch (err) { next(err); }
 };
+
+// POST /api/attendance/batch
+exports.batchClockIn = async (req, res, next) => {
+  try {
+    const result = await attendanceService.batchClockIn(req.user, req.body);
+    return res.status(200).json({ message: 'Attendance batch saved successfully', data: result });
+  } catch (err) { next(err); }
+};
+
+// GET /api/attendance/today  — student's own today record (JWT-resolved)
+exports.getMyToday = async (req, res, next) => {
+  try {
+    const record = await attendanceService.getMyToday(req.user, req.query);
+    return res.status(200).json({ message: "Today's attendance fetched", data: record });
+  } catch (err) { next(err); }
+};
+
+// GET /api/attendance/me  — student's own history (JWT-resolved)
+exports.getMyHistory = async (req, res, next) => {
+  try {
+    const rows = await attendanceService.getMyHistory(req.user, req.query);
+    return res.status(200).json({
+      message: 'Attendance history fetched',
+      count:   rows.length,
+      data:    rows,
+    });
+  } catch (err) { next(err); }
+};

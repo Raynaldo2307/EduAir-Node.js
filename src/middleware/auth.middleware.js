@@ -43,6 +43,9 @@ const authMiddleware = async (req, res, next) => {
     }
 
     // 7) Check that user still exists in DB
+   // DB lookup — user still exists (wasn't deleted after token was issued
+
+ 
     const [rows] = await pool.query(
       `SELECT id, email, role, school_id
        FROM users
@@ -50,6 +53,8 @@ const authMiddleware = async (req, res, next) => {
        LIMIT 1`,
       [userId]
     );
+
+    // validate of row exsits 
 
     if (rows.length === 0) {
       throw new AppError('User no longer exists.', 401);
@@ -73,3 +78,6 @@ const authMiddleware = async (req, res, next) => {
 };
 
 module.exports = authMiddleware;
+
+//"Every protected request triggers one database query just to check if the user exists. At high traffic, that's
+  //thousands of unnecessary DB hits per second — a bottleneck that can slow down or crash the server."

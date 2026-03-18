@@ -425,6 +425,173 @@ async function deleteRecord(user, params) {
   await attendanceRepo.deleteRecord(id, schoolId);
 }
 
+/**
+ * GET TODAY'S RECORD — student's own today record, resolved from JWT.
+ * No studentId needed in the URL — identity comes from the token.
+ */
+async function getMyToday(user, query) {
+  const { id: userId, schoolId } = user;
+  const { shift_type } = query;
+
+  if (shift_type && !VALID_SHIFT_TYPES.includes(shift_type)) {
+    throw new AppError(`shift_type must be one of: ${VALID_SHIFT_TYPES.join(', ')}`, 400);
+  }
+
+  const student = await attendanceRepo.getStudentByUserId(userId, schoolId);
+  if (!student) {
+    throw new AppError('No student profile found for your account', 404);
+  }
+
+  return await attendanceRepo.getTodayRecord(student.id, schoolId, shift_type);
+}
+
+/**
+ * GET MY HISTORY — student's own attendance history, resolved from JWT.
+ * No studentId needed — identity comes from the token.
+ */
+async function getMyHistory(user, query) {
+  const { id: userId, schoolId } = user;
+  const { limit = 14, shift_type } = query;
+
+  const parsedLimit = parseInt(limit, 10);
+  if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 90) {
+    throw new AppError('limit must be a number between 1 and 90', 400);
+  }
+
+  if (shift_type && !VALID_SHIFT_TYPES.includes(shift_type)) {
+    throw new AppError(`shift_type must be one of: ${VALID_SHIFT_TYPES.join(', ')}`, 400);
+  }
+
+  const student = await attendanceRepo.getStudentByUserId(userId, schoolId);
+  if (!student) {
+    throw new AppError('No student profile found for your account', 404);
+  }
+
+  return await attendanceRepo.getStudentHistory(student.id, schoolId, {
+    shift_type,
+    limit: parsedLimit,
+  });
+}
+
+/**
+ * BATCH CLOCK-IN
+ * Teacher/admin marks a whole class at once for a given date + shift.
+ *
+ * Body:
+ *   date       — "YYYY-MM-DD"
+ *   shift_type — "morning" | "afternoon" | "whole_day"
+ *   entries    — [{ student_id, status, late_reason_code?, note? }]
+ *
+ * Behaviour:
+ *   - If a record already exists for that student/date/shift → update status.
+ *   - If no record exists → insert a new one (no clock_in time — teacher mark only).
+ *   - Writes audit history for every entry.
+ */
+async function batchClockIn(user, body) {
+  const { id: userId, schoolId, role } = user;
+  const { date, shift_type, entries } = body;
+
+  // 1) Validate date
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new AppError('date is required and must be in YYYY-MM-DD format', 400);
+  }
+
+  // 2) Validate shift_type
+  if (!shift_type || !VALID_SHIFT_TYPES.includes(shift_type)) {
+    throw new AppError(`shift_type must be one of: ${VALID_SHIFT_TYPES.join(', ')}`, 400);
+  }
+
+  // 3) Validate entries array
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new AppError('entries must be a non-empty array', 400);
+  }
+
+  for (const entry of entries) {
+    if (!entry.student_id) {
+      throw new AppError('Each entry must have a student_id', 400);
+    }
+    if (!entry.status || !VALID_STATUSES.includes(entry.status)) {
+      throw new AppError(`status must be one of: ${VALID_STATUSES.join(', ')}`, 400);
+    }
+    // late_reason_code is optional in batch — teacher roll doesn't collect a reason
+    if (entry.late_reason_code && !VALID_LATE_REASONS.includes(entry.late_reason_code)) {
+      throw new AppError(`late_reason_code must be one of: ${VALID_LATE_REASONS.join(', ')}`, 400);
+    }
+  }
+
+  const source = resolveSource(role);
+  const conn   = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    let savedCount = 0;
+
+    for (const entry of entries) {
+      // Confirm student belongs to this school
+      const student = await attendanceRepo.getStudentById(entry.student_id, schoolId);
+      if (!student) {
+        throw new AppError(`Student ${entry.student_id} not found in your school`, 404);
+      }
+
+      const existing = await attendanceRepo.findRecordForDate(
+        student.id, schoolId, date, shift_type, conn,
+      );
+
+      if (existing) {
+        // Update existing record
+        await attendanceRepo.updateStatus(existing.id, schoolId, {
+          status:           entry.status,
+          late_reason_code: entry.late_reason_code ?? null,
+          note:             entry.note             ?? null,
+          userId,
+        }, conn);
+
+        await attendanceRepo.writeHistory({
+          attendanceId:    existing.id,
+          previousStatus:  existing.status,
+          newStatus:       entry.status,
+          changedByUserId: userId,
+          source,
+        }, conn);
+      } else {
+        // Insert new record
+        const insertId = await attendanceRepo.insertBatchRecord({
+          schoolId,
+          studentId:       student.id,
+          classId:         student.homeroom_class_id,
+          userId,
+          shift_type,
+          date,
+          status:          entry.status,
+          source,
+          late_reason_code: entry.late_reason_code ?? null,
+          note:             entry.note             ?? null,
+        }, conn);
+
+        await attendanceRepo.writeHistory({
+          attendanceId:    insertId,
+          previousStatus:  null,
+          newStatus:       entry.status,
+          changedByUserId: userId,
+          source,
+        }, conn);
+      }
+
+      savedCount += 1;
+    }
+
+    await conn.commit();
+    return { saved: savedCount };
+
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
 module.exports = {
   clockIn,
   clockOut,
@@ -432,4 +599,7 @@ module.exports = {
   getBySchool,
   getStudentHistory,
   deleteRecord,
+  getMyToday,
+  getMyHistory,
+  batchClockIn,
 };

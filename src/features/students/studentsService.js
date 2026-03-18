@@ -73,8 +73,8 @@ async function create(schoolId, body) {
   return await studentsRepo.getStudentById(studentId, schoolId);
 }
 
-async function getAll(schoolId) {
-  return await studentsRepo.getAllStudents(schoolId);
+async function getAll(schoolId, filters = {}) {
+  return await studentsRepo.getAllStudents(schoolId, filters);
 }
 
 async function getById(id, schoolId) {

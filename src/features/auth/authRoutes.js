@@ -13,6 +13,10 @@ router.post('/login', authController.login);
 // GET /api/auth/me
 router.get('/me', authenticate, authController.me);
 
+// Protected — any logged-in user updates their own profile
+// PUT /api/auth/me
+router.put('/me', authenticate, authController.updateMe);
+
 // Admin-only — protected: admin or principal creates user accounts
 // POST /api/auth/register
 router.post(

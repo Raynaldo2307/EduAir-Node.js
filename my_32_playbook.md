@@ -417,3 +417,32 @@ Be ready to answer these without hesitation:
 ---
 
 *Last updated: February 23, 2026 — Phase 1 complete, all 10 tables designed*
+
+
+
+
+ ---                                                                                                                 
+  When you're back — here's the plan:                                                                                 
+                                                                                                                      
+  We go line by line through the auth system:                                                                         
+                                                                                                                      
+  1. Register     — how a user is created                                                                             
+  2. Login        — how JWT is issued                                                                                 
+  3. authMiddleware — the doorman at every route
+  4. Role checks  — student vs teacher vs admin
+  5. Flutter side — how token is stored and sent
+
+  By the end you'll be able to explain every line to your examiner without hesitation.
+
+  ---
+  I'll have a study playbook ready when you return.
+
+  Go rest. Clear your head. Come back sharp.
+
+  God bless. See you soon.
+
+● How is Claude doing this session? (optional)
+  1: Bad    2: Fine   3: Good   0: Dismiss
+                                              
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯  

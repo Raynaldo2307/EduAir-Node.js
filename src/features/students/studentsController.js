@@ -11,10 +11,10 @@ exports.createStudent = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// GET /api/students
+// GET /api/students?class_id=X
 exports.getAllStudents = async (req, res, next) => {
   try {
-    const rows = await studentsService.getAll(req.user.schoolId);
+    const rows = await studentsService.getAll(req.user.schoolId, req.query);
     return res.status(200).json({
       message: 'Students fetched successfully',
       count: rows.length,

@@ -137,35 +137,89 @@ async function softDelete(id, schoolId) {
   );
 }
 
-async function getAllStudents(schoolId) {
-  const [rows] = await pool.query(
-    `SELECT
-       s.id               AS student_id,
-       u.id               AS user_id,
-       u.email,
-       u.first_name,
-       u.last_name,
-       s.student_code,
-       s.sex,
-       s.date_of_birth,
-       s.current_shift_type,
-       s.phone_number,
-       s.status,
-       s.homeroom_class_id,
-       c.name             AS class_name,
-       c.grade_level
-     FROM students s
-     JOIN users u ON s.user_id = u.id
-     LEFT JOIN classes c ON s.homeroom_class_id = c.id
-     WHERE s.school_id = ? AND s.status = 'active'
-     ORDER BY u.last_name ASC, u.first_name ASC`,
-    [schoolId]
-  );
+async function getAllStudents(schoolId, filters = {}) {
+  const { class_id } = filters;
+
+  let query = `
+    SELECT
+      s.id               AS student_id,
+      u.id               AS user_id,
+      u.email,
+      u.first_name,
+      u.last_name,
+      s.student_code,
+      s.sex,
+      s.date_of_birth,
+      s.current_shift_type,
+      s.phone_number,
+      s.status,
+      s.homeroom_class_id,
+      c.name             AS class_name,
+      c.grade_level
+    FROM students s
+    JOIN users u ON s.user_id = u.id
+    LEFT JOIN classes c ON s.homeroom_class_id = c.id
+    WHERE s.school_id = ? AND s.status = 'active'
+  `;
+
+  const params = [schoolId];
+
+  if (class_id) {
+    query += ' AND s.homeroom_class_id = ?';
+    params.push(class_id);
+  }
+
+  query += ' ORDER BY u.last_name ASC, u.first_name ASC';
+
+  const [rows] = await pool.query(query, params);
   return rows;
+}
+
+// Find an existing attendance record for a specific student + date + shift.
+// Used by batchClockIn to decide insert vs update.
+async function findRecordForDate(studentId, schoolId, date, shiftType, conn) {
+  const [rows] = await conn.query(
+    `SELECT id, status
+     FROM attendance
+     WHERE student_id = ? AND school_id = ? AND attendance_date = ? AND shift_type = ?
+     LIMIT 1`,
+    [studentId, schoolId, date, shiftType]
+  );
+  return rows[0] ?? null;
+}
+
+// INSERT a teacher batch record with an explicit date.
+// Unlike insertClockIn, there is no clock_in time — the teacher is marking status only.
+async function insertBatchRecord(data, conn) {
+  const {
+    schoolId, studentId, classId, userId,
+    shift_type, date, status, source, late_reason_code, note,
+  } = data;
+
+  const [result] = await conn.query(
+    `INSERT INTO attendance
+       (school_id, student_id, class_id, recorded_by_user_id,
+        shift_type, attendance_date,
+        status, source, late_reason_code, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      schoolId,
+      studentId,
+      classId          ?? null,
+      userId,
+      shift_type,
+      date,
+      status,
+      source,
+      late_reason_code ?? null,
+      note             ?? null,
+    ]
+  );
+  return result.insertId;
 }
 
 module.exports = {
   getStudentById, findStudent, findUserByEmail,
   insertUser, insertStudent, updateUser, updateStudent,
-  softDelete, getAllStudents,
+  softDelete, getAllStudents, findRecordForDate, insertBatchRecord,
 };

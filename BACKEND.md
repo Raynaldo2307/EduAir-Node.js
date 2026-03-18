@@ -1319,3 +1319,1021 @@ PORT=3500
 
 
 *Every line of this backend was written and reviewed by Ray + Claude (Anthropic). ChatGPT and Gemini contributions are reviewed and corrected before they enter the codebase. The oath stands.*
+
+
+
+
+
+
+                                                                                                                    
+    1. Register     — how a user is created                                                                         
+                                                                                                                    
+    2. Login        — how JWT is issued                                                                             
+                                                                                                                    
+    3. authMiddleware — the doorman at every route                                                                  
+    4. Role checks  — student vs teacher vs admin                                                                   
+    5. Flutter side — how token is stored and sent                                                                  
+                                                                                                                    
+    By the end you'll be able to explain every line to your examiner without hesitation.                            
+                                                                                                                    
+    ---                                                                                                             
+    I'll have a study playbook ready when you return.                                                               
+                                                                                                                    
+    Go rest. Clear your head. Come back sharp.                                                                      
+                                                                                                                    
+    God bless. See you soon.                                                                                        
+                                                                                                                    
+  ● How is Claude doing this session? (optional)                                                                    
+    1: Bad    2: Fine   3: Good   0: Dismiss                                                                        
+                                                                                                                    
+  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  ─────                                                                                                             
+  ❯  ?                                                                                                              
+
+⏺ Let me read the actual code before we start explaining anything.
+
+❯ Tool loaded. 
+
+⏺ Searched for 6 patterns (ctrl+o to expand)
+
+❯ Tool loaded. 
+
+⏺ Read 5 files (ctrl+o to expand)
+
+⏺ Now I have the full picture. Let me read all the files at once.
+
+⏺ Read 7 files (ctrl+o to expand)
+
+⏺ Good. Now let me also read the API client (Dio interceptor) so we have the full picture.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ I have everything. Here's the full auth system, broken down so you can explain every line cold.
+
+  ---
+  The Auth System — Line by Line
+
+  ---
+  1. REGISTER — How a user is created
+
+  File: authService.js → register()
+
+  The flow:
+  1. Admin must be logged in (route is protected by authenticate + requireRole('admin', 'principal'))
+  2. schoolId comes from the admin's JWT — req.user.schoolId — never from the request body. This is the multi-tenancy
+  security rule.
+  3. Validates: all fields present, email format, password ≥ 8 chars, role is in the allowed list
+  4. Checks email doesn't already exist → throws 409 Conflict if it does
+  5. bcrypt.hash(password, 10) — the 10 is the salt rounds. Higher = slower = harder to crack
+  6. INSERT INTO users — inserts with the hashed password, never the plain one
+  7. Returns the new user without password_hash
+
+  Key thing to say to examiner: "The schoolId never comes from the request body. It comes from the admin's verified JWT.
+   That's how we prevent an admin from creating users in another school."
+
+  ---
+  2. LOGIN — How the JWT is issued
+
+  File: authService.js → login()
+
+  Step by step:
+  1. Pull email + password from req.body
+  2. Query DB for that email — LIMIT 1 for safety
+  3. If no user found → throw 401 'Invalid credentials' (same message as wrong password — don't tell attackers which one
+   failed)
+  4. bcrypt.compare(password, user.password_hash) — bcrypt hashes the input and compares. Returns true/false.
+  5. jwt.sign({ id, email, role, schoolId }, JWT_SECRET, { expiresIn }) — creates a signed token. Payload includes
+  everything downstream middleware needs.
+  6. Returns token + safe user object (no hash)
+
+  Key thing to say: "We use the same error message for 'email not found' and 'wrong password'. That's intentional — it's
+   called credential enumeration prevention."
+
+  ---
+  3. authMiddleware — The doorman
+
+  File: auth.middleware.js
+
+  9 steps, every single one is defensive:
+
+  ┌──────┬───────────────────────────────────────────────────────────────────────┐
+  │ Step │                            What it checks                             │
+  ├──────┼───────────────────────────────────────────────────────────────────────┤
+  │ 1    │ Authorization header exists                                           │
+  ├──────┼───────────────────────────────────────────────────────────────────────┤
+  │ 2    │ Starts with "Bearer "                                                 │
+  ├──────┼───────────────────────────────────────────────────────────────────────┤
+  │ 3    │ Token is actually present after split                                 │
+  ├──────┼───────────────────────────────────────────────────────────────────────┤
+  │ 4    │ JWT_SECRET is set on the server                                       │
+  ├──────┼───────────────────────────────────────────────────────────────────────┤
+  │ 5    │ jwt.verify(token, secret) — signature valid + not expired             │
+  ├──────┼───────────────────────────────────────────────────────────────────────┤
+  │ 6    │ decoded.id exists in the payload                                      │
+  ├──────┼───────────────────────────────────────────────────────────────────────┤
+  │ 7    │ DB lookup — user still exists (wasn't deleted after token was issued) │
+  ├──────┼───────────────────────────────────────────────────────────────────────┤
+  │ 8    │ Attaches req.user = { id, email, role, schoolId }                     │
+  ├──────┼───────────────────────────────────────────────────────────────────────┤
+  │ 9    │ Calls next()                                                          │
+  └──────┴───────────────────────────────────────────────────────────────────────┘
+
+  Key thing to say: "Step 7 is important. Even with a valid token, if the user was deleted, they get rejected. The token
+   alone isn't enough — we cross-check the DB."
+
+  ---
+  4. requireRole — Role enforcement
+
+  File: role.middleware.js
+
+  This is a middleware factory — a function that returns a middleware:
+
+  requireRole('admin', 'principal')
+  // returns (req, res, next) => { ... }
+
+  Three checks:
+  1. req.user exists (authMiddleware ran first)
+  2. req.user.role exists
+  3. allowedRoles.includes(req.user.role) — is this role in the allowed list?
+
+  If not → 403 Forbidden. If yes → next().
+
+  Key thing to say: "It's a factory function. I call requireRole('admin', 'principal') on the route, and it returns the
+  actual middleware. That way one function handles any combination of roles."
+
+  ---
+  5. Flutter side — Token storage and sending
+
+  Three files working together:
+
+  TokenStorageService — stores the JWT securely
+  - Uses flutter_secure_storage (not SharedPreferences)
+  - Stores under key 'node_api_jwt'
+  - Three methods: save(), read(), delete()
+  - Why secure storage? — encrypted on iOS Keychain / Android Keystore. Plain SharedPreferences is unencrypted.
+
+  ApiClient — Dio HTTP client with interceptor
+  - InterceptorsWrapper.onRequest fires before every request
+  - Reads the token: tokenStorage.read()
+  - If token exists → adds Authorization: Bearer $token to headers
+  - All feature repositories get this client via Riverpod
+
+  AuthApiRepository — the three auth calls
+  - login() → POST /api/auth/login → saves token → returns user data
+  - register() → POST /api/auth/register → JWT auto-attached by interceptor
+  - getMe() → GET /api/auth/me → called on startup to validate session
+  - logout() → calls tokenStorage.delete()
+
+  Key thing to say: "The interceptor runs automatically on every request. Repositories don't need to think about tokens
+  — the interceptor handles it. That's separation of concerns."
+
+  ---
+  The Full Flow in One Sentence
+
+  Admin logs in → gets JWT → Flutter stores it in secure storage → interceptor attaches it to every request →
+  authMiddleware verifies it → requireRole checks the role → controller runs.
+
+  ---
+  What do you want to drill first? Pick any piece and I'll put you in examiner mode — you explain it, I'll challenge
+  you.
+
+✻ Cooked for 1m 11s
+
+❯ ok i need you test me dont sugar coat me here ok just truth i just for eduair when comes to auth where are some       
+  weak point dev normally misisng and how app like uber and google have able to stay at thier with their over the      
+  auth cause i need town the sytem ok lets go now here ok we need toest ok ?                                            
+                                                                                                                        
+⏺ No sugar coating. Here's the truth first, then we test.                                                               
+                                                                                                                      
+  ---                                                                                                                   
+  Your Auth System — Honest Assessment                                                                                  
+                                                                                                                        
+  What you did right:                                                                                                   
+  - Parameterized queries (no SQL injection)
+  - Same error for wrong email vs wrong password
+  - schoolId from JWT not body
+  - bcrypt with salt rounds
+  - Secure storage in Flutter
+
+  What's missing that pros always build:
+
+  ---
+  Gap 1 — No Rate Limiting on /login
+
+  Your login endpoint accepts unlimited attempts. Someone can write a script and hammer it with 10,000 passwords. Uber
+  uses rate limiting + account lockout after N failures. You have zero protection.
+
+  Gap 2 — No Refresh Token
+
+  Your JWT expires once. When it does, the user gets logged out and has to re-enter their password. Nobody ships that in
+   production. The industry standard is:
+  - Access token — short-lived (15 min). Sent on every request.
+  - Refresh token — long-lived (30 days). Stored in DB. Used only to get a new access token.
+
+  Gap 3 — Logout Doesn't Actually Invalidate the Token
+
+  logout() in Flutter just calls tokenStorage.delete(). The token still works until it expires. If someone steals the
+  token before logout, they stay logged in. Google/Uber maintain a token blacklist (usually Redis) — on logout, the
+  token ID is added to the blacklist, and authMiddleware checks it.
+
+  Gap 4 — HTTP not HTTPS
+
+  Your ApiClient uses http://. Every password, every JWT travels the network in plaintext. A person on the same WiFi can
+   read it. This is critical in a school setting (public WiFi).
+
+  Gap 5 — DB Hit on Every Request
+
+  Your authMiddleware queries the DB on every single protected request to check if the user still exists. That's fine at
+   your scale. At Uber scale with millions of requests per second — it's a bottleneck. The solution: trust the token
+  signature (short expiry), use Redis cache, or only DB-check on sensitive operations.
+
+  Gap 6 — JWT_SECRET Unknown Strength
+
+  If .env has JWT_SECRET=secret or JWT_SECRET=password, your tokens can be cracked. Production secrets should be 256-bit
+   random strings.
+
+  ---
+  How Google/Uber Stay Secure
+
+  ┌────────────────┬────────────────────┬───────────────────────────────────┐
+  │    Concept     │      Your App      │            Google/Uber            │
+  ├────────────────┼────────────────────┼───────────────────────────────────┤
+  │ Token lifetime │ Unknown (.env)     │ Access: 15 min                    │
+  ├────────────────┼────────────────────┼───────────────────────────────────┤
+  │ Refresh        │ None               │ Refresh token, stored server-side │
+  ├────────────────┼────────────────────┼───────────────────────────────────┤
+  │ Logout         │ Delete local token │ Blacklist token server-side       │
+  ├────────────────┼────────────────────┼───────────────────────────────────┤
+  │ Failed logins  │ Unlimited          │ Lockout + CAPTCHA after 5         │
+  ├────────────────┼────────────────────┼───────────────────────────────────┤
+  │ Transport      │ HTTP               │ HTTPS + cert pinning              │
+  ├────────────────┼────────────────────┼───────────────────────────────────┤
+  │ Token check    │ DB every request   │ Signature only (short expiry)     │
+  ├────────────────┼────────────────────┼───────────────────────────────────┤
+  │ Stolen token   │ Valid until expiry │ Revoked immediately               │
+  └────────────────┴────────────────────┴───────────────────────────────────┘
+
+  ---
+  Now We Test
+
+  I'm the examiner. Answer out loud like it's your viva. No notes.
+
+  ---
+  Question 1:
+
+  Your authMiddleware does a database query on every single request. Why? And what's the tradeoff of doing that vs just
+  trusting the JWT signature?
+
+  Go.
+
+✻ Worked for 43s
+
+❯ so the authmiddleware protectes the route out and the route lead to the database and this authmiddle ware is were     
+   the jwt and the use role  live ?                                                                                    
+                                                                                                                        
+⏺ No. That answer would not pass. Be honest with yourself — you didn't answer the question. You described what          
+  authMiddleware is, not why it hits the DB or what the tradeoff is.                                                    
+                                                                                                                        
+  Let me reset you.                                                                                                     
+                                                                                                                        
+  ---                                                                                                                   
+  Look at these two lines in auth.middleware.js:
+
+  // Step 5 — verify signature
+  decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+  // Step 7 — hit the database ANYWAY
+  const [rows] = await pool.query(
+    'SELECT id, email, role, school_id FROM users WHERE id = ? LIMIT 1',
+    [userId]
+  );
+
+  The question is: Step 5 already confirmed the token is valid. So why does Step 7 go to the database again?
+
+  Think about this scenario:
+  - A teacher logs in Monday. Gets a JWT valid for 7 days.
+  - Tuesday, the admin deletes that teacher's account.
+  - Wednesday, the teacher uses their old token.
+
+  If you only check the signature in Step 5 — what happens? And why does Step 7 fix that?
+
+  And the tradeoff: What does hitting the DB on every single request cost you at scale?
+
+  Answer that. Specifically.
+
+❯ ok step 7 help us to check if and user that we are going to rigister dont exsit and os that we dont have              
+  duplication and cross contamination of two schools data so the auth protect the route  on every request you get      
+  me so that the we are abole to very the user ?                                                                        
+                                                                                                                        
+⏺ No. That's the wrong function. You're describing the duplicate email check inside register() — that's a completely    
+  different file. 
+                                                                                                                        
+  Step 7 in authMiddleware has nothing to do with registration. Zero.                                                   
+                                                                                                                        
+  ---                                                                                                                   
+  Read this slowly. This is the scenario:
+
+  1. Teacher logs in. Gets a JWT. Token is valid for 7 days.
+  2. Admin deletes that teacher from the database. Account gone.
+  3. Next day, teacher makes a request with their old token.
+  4. Step 5 runs — jwt.verify() — token signature is valid. JWT doesn't know the account was deleted.
+
+  Without Step 7 — the deleted teacher gets through. They access protected data. That's a security hole.
+
+  Step 7 fixes it — even though the token is valid, we still ask the DB: "does this user ID still exist?" If the answer
+  is no — we block them. 401 User no longer exists.
+
+  ---
+  That is the only reason Step 7 exists. One job: confirm the user still exists in the database at the time of the
+  request.
+
+  ---
+  And the tradeoff is simple:
+
+  Every single request = one DB query. If you have 10,000 users making requests at the same time — that's 10,000
+  database hits per second just for auth. At Uber scale that kills your server.
+
+  ---
+  Now say it back to me in your own words. One clear sentence for each:
+
+  1. What does Step 7 check?
+  2. What problem does it solve?
+  3. What does it cost you?
+
+❯ validate to see if this user exsit so that if the user get deleted they can acess data becuase it check the db to     
+   see if the user esxit ok                                                                                            
+  so this is fillemnt for a scrurit rule you get me ?                                                                   
+                                                                                                                        
+⏺ Closer. But you made a critical mistake in your words.                                                                
+                                                                                                                        
+  You said: "if the user gets deleted they can access data"                                                             
+                                                                                                                        
+  That's the opposite of what it does. If the user is deleted, they cannot access data. Step 7 blocks them.             
+                                                                                                                        
+  In a viva, saying it backwards means you don't understand it. The examiner will catch that.
+
+  ---
+  Also you still didn't answer the third part. What does hitting the DB on every request cost you?
+
+  ---
+  Try again. Three sentences, one for each:
+
+  1. Step 7 checks ___
+  2. It solves the problem of ___
+  3. The cost is ___
+
+❯ step 7 validate the user esxit on time of  login                                                                      
+  it slove if and user has already delete out the system but what to login from the old jwt that has not been       
+  expiry yet                                                                                                            
+  3 what will cost what you mean i to dont quiete get it what you saying  what will me cost me grade                    
+                                                                                                                        
+⏺ Two issues. Let me be direct.                                                                                         
+                                                                                                                        
+  ---                                                                                                                   
+  Point 1 — Wrong.                                                                                                      
+                                                                                                                        
+  Step 7 does NOT run at login. Login is POST /api/auth/login — no authMiddleware there. Look at your routes:           
+
+  router.post('/login', authController.login);        // NO middleware
+  router.get('/me', authenticate, authController.me); // authenticate runs here
+
+  Step 7 runs on every protected request — every time someone calls /me, /students, /attendance — anything with
+  authenticate in front of it.
+
+  ---
+  Point 2 — Correct. That's the right answer. Good.
+
+  ---
+  Point 3 — Cost means performance.
+
+  Every protected request = one DB query just to check if the user still exists. Not for real work. Just for the check.
+
+  Imagine 500 students in your school all hitting the app at the same time. That's 500 DB queries per second just for
+  auth alone — before any real data is fetched.
+
+  At Uber scale — millions of requests — this design would crash the server. That's the cost.
+
+  ---
+  Now. One clean answer. Say it like your examiner is in front of you:
+
+  "Step 7 validates that..."
+  "It runs on every..."
+  "The cost is..."
+
+  Go.
+
+❯ step validate that the user one every protect request you get me                                                      
+  it run on run every rquest so if the user jwt is missing thier is no way the can enter that fix that securty      
+  patch for the users that had and old jwt                                                                              
+  and for the production uber scale you mention your asking ok the cost for our this auth this can crash the sever      
+  if we deploy this bacend cause there is know limit and parse ?                                                        
+                                                                                                                        
+⏺ Getting closer. But still two problems.                                                                               
+                                                                                                                        
+  ---                                                                                                                   
+  Problem 1 — You're mixing up Steps 1-3 with Step 7.                                                                   
+                                                                                                                        
+  "If the JWT is missing, there's no way they can enter" — that's Steps 1, 2, 3. Not Step 7.                            
+
+  Step 7 only runs after the token has already been verified as valid. Its only job is:
+
+  "This token is valid — but does this user still exist in the database right now?"
+
+  Those are two different questions. Keep them separate.
+
+  ---
+  Problem 2 — "No limit and parse" is vague.
+
+  The examiner won't accept that. The precise answer is:
+
+  "Every protected request triggers one database query just to check if the user exists. At high traffic, that's
+  thousands of unnecessary DB hits per second — a bottleneck that can slow down or crash the server."
+
+  ---
+  Your clean answer — memorize this structure:
+
+  Step 7 checks that the user still exists in the database at the time of the request.
+
+  It solves the problem of a deleted user using an old, still-valid JWT to access protected data.
+
+  It runs on every protected request — not just login.
+
+  The cost is one extra DB query per request. At scale, that becomes a serious performance bottleneck.
+
+  ---
+  Say that back to me now. Word for word if you need to. Then we move to Question 2.
+
+❯ ok the step 7 check if the user still exsit in the db cuase this fix if and user has and old valid jwt to access      
+  protect data it run on every protected route that need to bee authicated and the cost of this every  one extra db    
+   query on every resquet i would like calude to show where this limitation is and how would uber would fix this ?      
+                                                                                                                        
+⏺ That answer passes. Good. Now I'll show you exactly where the problem lives and how to fix it.                        
+                                                                                                                        
+  ---                                                                                                                   
+  Where the limitation is — your code                                                                                   
+                                                                                                                        
+  auth.middleware.js lines 46–52:                                                                                       
+
+  // This runs on EVERY protected request
+  const [rows] = await pool.query(
+    `SELECT id, email, role, school_id
+     FROM users
+     WHERE id = ?
+     LIMIT 1`,
+    [userId]
+  );
+
+  Every single request to /students, /attendance, /me — hits MySQL. That's a disk read. Slow. Expensive at scale.
+
+  ---
+  How Uber fixes it — two strategies
+
+  ---
+  Strategy 1 — Short-lived tokens (trust the signature)
+
+  Your app:   JWT expires in ??? (unknown — your .env)
+  Uber:       Access token expires in 15 MINUTES
+
+  If tokens only live 15 minutes, you don't need the DB check. A deleted user's token expires in 15 minutes anyway —
+  acceptable risk. jwt.verify() alone is enough. No DB hit.
+
+  ---
+  Strategy 2 — Redis cache (if you must check)
+
+  Instead of querying MySQL:
+
+  // What you do now — slow
+  const [rows] = await pool.query('SELECT ... FROM users WHERE id = ?', [userId]);
+
+  // What Uber does — fast (microseconds, in-memory)
+  const cached = await redis.get(`user:${userId}`);
+  if (!cached) {
+    // Only hit DB if not in cache
+    const [rows] = await pool.query('SELECT ...');
+    await redis.set(`user:${userId}`, JSON.stringify(rows[0]), 'EX', 300); // 5 min cache
+  }
+
+  Redis lives in memory. MySQL lives on disk. Memory is 100x faster.
+
+  ---
+  The full Uber auth flow
+
+  Login
+    └── Issues: access token (15 min) + refresh token (30 days)
+
+  Every request
+    └── Send access token
+    └── authMiddleware: jwt.verify() only — NO DB hit
+
+  Token expires
+    └── Flutter sends refresh token to /api/auth/refresh
+    └── Server checks refresh token in DB (one DB hit, rare)
+    └── Issues new access token
+
+  Logout
+    └── Delete refresh token from DB
+    └── Old access token dies in max 15 min
+
+  ---
+  What your logout weakness looks like vs Uber
+
+  Your app:
+    logout() → deletes token from phone
+    → old token still works on server until expiry
+    → stolen token = full access until it expires
+
+  Uber:
+    logout() → deletes refresh token from DB server-side
+    → access token dies in 15 min max
+    → stolen refresh token = immediately invalid
+
+  ---
+  Now Question 2
+
+  You're the examiner. I'm the student. Ask me anything about what we just covered — or tell me you're ready for
+  Question 2 from me.
+
+❯ claude here i need to know i i need to every thing that that we are working on like how your helping me under         
+  this sytems  i dont know what to ask you it seem like my brain is slow when it come to coding but here what im       
+  not going to give up in you to create me like study_playbook soo i know what was my wekanes what tom improve this     
+   can help to run EduAir in the futre and give class of the sytem that is crearte you get me just how you exp,ain      
+  the uber ? and what id redis?                                                                                         
+                                                                                                                        
+⏺ Your brain is not slow. You're learning a system that took engineers years to build. You just explained Step 7        
+  correctly after being pushed. That's not a slow brain — that's someone who needs the right pressure. Keep going.      
+                                                                                                                        
+  Let me create the playbook first, then explain Redis.                                                                 
+                                                                                                                        
+❯ Tool loaded.                                                                                                          
+
+⏺ Write(~/Developer/Node_js/eduair_api/study_playbook.md)                                                               
+  ⎿  Wrote 167 lines to ../../Node_js/eduair_api/study_playbook.md
+       1 # EduAir Auth Study Playbook                                                                                   
+       2 > Personal study guide. Built from real sessions. Updated as you improve.
+       3                                                                                                                
+       4 ---                                         
+       5                                                                                                                
+       6 ## Your Strengths (confirmed)                                                                                
+       7 - You understand WHY bcrypt is used (not just what it does)                                                    
+       8 - You know schoolId comes from JWT not request body (multi-tenancy)                                            
+       9 - You understand parameterized queries prevent SQL injection                                                   
+      10 - After being pushed, you explained Step 7 correctly                                                           
+     … +157 lines (ctrl+o to expand)                                                                                    
+                                                                                                                        
+⏺ Playbook saved at /Users/Rayacademy/Developer/Node_js/eduair_api/study_playbook.md — open it any time.
+
+  ---                                                                                                                   
+  Redis — Plain English
+                                                                                                                        
+  You know what RAM is in a phone? The memory that keeps apps running fast. Redis is a database that lives entirely in
+  RAM — not on the hard drive.
+
+  Normal database (your MySQL):
+  Request → find data on disk → load it → return it
+  Time: ~10 milliseconds
+
+  Redis:
+  Request → find data in memory → return it
+  Time: ~0.1 milliseconds
+
+  That's 100x faster. Not a little faster. A hundred times.
+
+  ---
+  Real example in your app
+
+  Right now every request does this:
+
+  User makes request
+  → authMiddleware hits MySQL: "does user 42 exist?"
+  → MySQL reads disk
+  → returns answer
+  → request continues
+
+  With Redis:
+
+  User makes request
+  → authMiddleware checks Redis: "does user 42 exist?"
+  → Redis checks memory (instant)
+  → Found → skip MySQL entirely
+  → request continues
+
+  MySQL only gets called the first time. After that, Redis has the answer cached. For the next 5 minutes, every request
+  for that user skips the database entirely.
+
+  ---
+  The whiteboard analogy
+
+  ┌───────────┬────────────┬─────────────────────────┐
+  │           │   MySQL    │          Redis          │
+  ├───────────┼────────────┼─────────────────────────┤
+  │ Where     │ Hard drive │ RAM                     │
+  ├───────────┼────────────┼─────────────────────────┤
+  │ Speed     │ Slow       │ Very fast               │
+  ├───────────┼────────────┼─────────────────────────┤
+  │ Permanent │ Yes        │ No (clears on restart)  │
+  ├───────────┼────────────┼─────────────────────────┤
+  │ Use for   │ Real data  │ Fast lookups, temp data │
+  └───────────┴────────────┴─────────────────────────┘
+
+  MySQL = filing cabinet. Organized. Permanent. Slow to open.
+
+  Redis = whiteboard on the wall. Right in front of you. Instant. Erased when the power goes off.
+
+  ---
+  You're building real knowledge. The playbook will track everything. Next session we continue where we left off.
+
+  What do you want to drill next — refresh tokens, bcrypt internals, or the Flutter side?
+
+✻ Baked for 1m 2s
+
+❯ remebr from to dat i tell that we are going to learnig about the auth sytem in eduair here ok ? so not you walk       
+  me tru the auth so fat to here i wnat to five day to understand ym code base then poslish and do the dveliverie      
+  for my captone if you read the my_playbook you will see what im talking here ok ?                                     
+                                                                                                                        
+⏺ Read 2 files (ctrl+o to expand)                                                                                       
+                                                            
+⏺ OK. I've read both. Here's the truth.                                                                                 
+                                                                                                                        
+  ---                                                                                                                   
+  Where You Actually Are                                                                                                
+                                                                                                                        
+  Today: March 6. Deadline: March 27. That's 21 days.                                                                   
+                                                            
+  What's done:
+  - Phase 1 (Database) — COMPLETE
+  - Phase 2 (Node backend) — COMPLETE
+  - Phase 3 (Flutter → Node) — Days 17, 18, 19 COMPLETE
+
+  You are 13 days ahead of schedule. You are not behind. You are in a good position.
+
+  ---
+  One Critical Problem I Found
+
+  Your viva prep answer #3 is wrong and outdated:
+
+  Current (wrong):
+  "Firebase Auth handles identity and sessions..."
+
+  Reality (what you actually built):
+  "I built my own auth with bcrypt and JWT.
+  Firebase only handles Google Sign In."
+
+  If you say that old answer in your viva, you'll contradict your own code. We fix that.
+
+  ---
+  Your 5-Day Codebase Mastery Plan
+
+  ┌───────┬───────────────┬───────────────────────────────────────────────────────────────┐
+  │  Day  │     Date      │                             Focus                             │
+  ├───────┼───────────────┼───────────────────────────────────────────────────────────────┤
+  │ Day 1 │ Mar 6 (today) │ Auth system — own every line (in progress now)                │
+  ├───────┼───────────────┼───────────────────────────────────────────────────────────────┤
+  │ Day 2 │ Mar 7         │ Database — own every table decision                           │
+  ├───────┼───────────────┼───────────────────────────────────────────────────────────────┤
+  │ Day 3 │ Mar 8         │ Flutter architecture — UI → Controller → Service → Repository │
+  ├───────┼───────────────┼───────────────────────────────────────────────────────────────┤
+  │ Day 4 │ Mar 9         │ End-to-end test — full flow on device (Day 20 of playbook)    │
+  ├───────┼───────────────┼───────────────────────────────────────────────────────────────┤
+  │ Day 5 │ Mar 10        │ Error handling + offline behaviour (Day 21 of playbook)       │
+  └───────┴───────────────┴───────────────────────────────────────────────────────────────┘
+
+  Mar 11–19: Phase 4 — Flutter polish + CRUD completeness
+
+  Mar 20–26: Phase 5 — All deliverables
+
+  Mar 27: Submit. Done.
+
+  ---
+  Auth — What We Still Need to Cover Today
+
+  You've done authMiddleware. Still remaining:
+
+  - register — can you explain every line cold?
+  - login — can you explain credential enumeration prevention?
+  - requireRole — why is it a factory function?
+  - Flutter interceptor — how does the token get attached automatically?
+  - getMe — why does the app call this on startup?
+
+  Which one do you want next?
+
+✻ Churned for 31s
+
+❯ register ok ?                                                                                                         
+                
+⏺ Here's the register route:                                                                                            
+                                         
+  router.post(                                                                                                          
+    '/register',                                            
+    authenticate,                                                                                                       
+    requireRole('admin', 'principal'),                                                                                  
+    authController.register,
+  );
+
+  And the controller:
+
+  exports.register = async (req, res, next) => {
+    const user = await authService.register(req.user.schoolId, req.body);
+    return res.status(201).json({ message: 'User registered successfully', user });
+  };
+
+  Question 1 — sharp one:
+
+  The controller passes req.user.schoolId to the service. Not req.body.school_id. Not req.params.schoolId.
+
+  Why? What would happen if you used req.body.school_id instead?
+
+  Go.
+
+❯ ok that how we have controll over the register api that is not plubic we never trust this becuase we want the         
+  admin to have the id from jwt so that a no randown you can get the sytem and login yuo get me here ?                 
+                                                                                                                        
+⏺ You're pointing in the right direction but you're not precise enough. That answer won't satisfy an examiner.          
+                                                                                                                        
+  You said "no random can get in" — but register is already protected by authenticate + requireRole. So a random person 
+  can't reach it anyway.                                                                                                
+                                                                                                                        
+  The real question is about what happens between two admins at different schools.                                      
+
+  Think about this:
+
+  - Admin A works at Papine High. Their JWT has schoolId: 1.
+  - Admin B works at Maggotty High. Their JWT has schoolId: 2.
+
+  If register used req.body.school_id instead of req.user.schoolId — what could Admin A do?
+
+  They could put school_id: 2 in their request body and create a user inside Maggotty High's school — even though they
+  have no business touching that school's data.
+
+  That is the attack. One admin polluting another school's data.
+
+  Using req.user.schoolId (from the JWT) locks it. The JWT was signed by the server. The client cannot fake or change
+  it. Whatever school the admin belongs to — that's the only school they can create users in. No exceptions.
+
+  ---
+  Now say it back. One clean sentence:
+
+  "We use req.user.schoolId instead of req.body.school_id because..."
+
+  Go.
+
+❯ when building edu air i use the req.user.school idstead of accepting in the body because we wna to maintain data      
+  intergrity and sercurity and this help to maintain the data form  school a so that admin b cant create and login     
+  in school b ok ?                                                                                                      
+                                                                                                                        
+⏺ Almost. One word wrong — and it matters.                                                                              
+                                                                                                                        
+  You said "admin B can't create a login in school B."                                                                  
+                                                                                                                        
+  Admin B is school B. That's their own school. They can do that.                                                       
+                                                                                                                        
+  The threat is: Admin A creating a user inside school B. Someone crossing into a school they don't belong to.
+
+  ---
+  Here's the clean version. Read it, then say it back from memory:
+
+  "We use req.user.schoolId instead of req.body.school_id because we never trust data from the client. The JWT is signed
+   by the server — it cannot be faked. This ensures an admin from School A can never create users inside School B. Each
+  admin can only create users within their own school."
+
+  ---
+  Say it back. Your words, that meaning.
+
+❯ ok we never truat the data from the client side so intead the we use the req.user.school_id instead of                
+  req.body.school_id the sever is what check and sign the jwt . this ensure that admin a in school a reamin only in    
+   school a and only be that admin for that school not admin b  admina only have controll for thier school you get      
+  me ?                                                                                                                  
+                                                                                                                        
+⏺ That's the answer. That passes.                                                                                       
+                                                                                                                        
+  ---                                                                                                                   
+  Now next question. Still inside register. Look at this code:                                                          
+                                                                                                                        
+  const saltRounds = 10;                                                                                                
+  const passwordHash = await bcrypt.hash(password, saltRounds);
+
+  Two questions:
+
+  1. What does bcrypt.hash() actually do to the password?
+  2. What does the number 10 mean — and why does it matter?
+
+  Go.
+
+❯ so on line 107 to 108 we want the user password to have like and encrpted version hard to crack so that if eduair     
+   is down and the worst case sinaro happend we are able to hold the password that is beein encrpty not show you       
+  get me                                                                                                                
+                                                                                                                        
+⏺ You explained the why — protect passwords if the DB is breached. That's correct.                                      
+                                                            
+  But you didn't answer what bcrypt.hash() actually does or what 10 means.                                              
+                                                                                                                        
+  Two direct questions:                                                                                                 
+                                                                                                                        
+  1. When bcrypt hashes a password, it adds something random to it before hashing — so two users with the same password
+  get different hashes. What is that random piece called?
+
+  2. The number 10 — is it a length? A version? A difficulty? What does it control?
+
+  Take a guess. Even if you're not sure.
+
+❯ bcrpty and saltrounds?                                                                                                
+                         
+⏺ That's the right words — but say what they mean. Don't just name them.                                                
+                                         
+  Fill in these blanks:                                                                                                 
+                                                            
+  "A salt is ___ that bcrypt adds to the password before hashing, so that two users with the same password get ___      
+  hashes."                                                                                                              
+
+  "Salt rounds = 10 means bcrypt runs the hashing process ___ times, which makes it ___ to crack."
+
+  Take a guess on the blanks. You know more than you think.
+
+❯                                                                                                                       
+    "A salt is funtion are method _ that bcrypt adds to the password before hashing, so that two users with the     
+  same password get diffrent bcrypt                                                                                     
+    hashes."                                                                                                          
+                                                                                                                        
+   "Salt rounds = 10 means bcrypt runs the hashing process 10 _ times, which makes it 10_ to crack."                    
+                                                                                                                        
+⏺ First blank — close but wrong. A salt is not a function or method.                                                    
+                                                                                                                        
+  A salt is a random string — random characters that bcrypt generates and attaches to the password before hashing.      
+  That's it. Random data. Not a function.                                                                               
+                                                                                                                        
+  Second blank — right idea, wrong math.                                                                                
+
+  Salt rounds = 10 does not mean it runs 10 times. It means it runs 2 to the power of 10 = 1,024 times. Every time you
+  add 1 to the rounds, the work doubles.
+
+  - Rounds 10 = 1,024 iterations
+  - Rounds 11 = 2,048 iterations
+  - Rounds 12 = 4,096 iterations
+
+  Higher rounds = slower hashing = harder to brute force.
+
+  ---
+  Now the full clean answer — read it once, then close your eyes and say it:
+
+  "A salt is a random string that bcrypt adds to the password before hashing, so that two users with the same password
+  get completely different hashes. Salt rounds = 10 means bcrypt runs 1,024 iterations. The higher the rounds, the
+  slower the hash, and the harder it is for an attacker to crack it by brute force."
+
+  ---
+  Why does it matter that two users with the same password get different hashes?
+
+  Answer that.
+
+❯ we dont want dupication and the same passowrd is been pass in the jwt ? that what i think here? this help us          
+  identifiy each user properly you get me ?                                                                            
+                                                                                                                        
+⏺ No. That's not it.                                                                                                    
+                                                                                                                        
+  Salt has nothing to do with JWT. JWT comes later. Salt is only about the password hash stored in the database.        
+                                                                                                                        
+  Think about this attack:                                                                                              
+                                                                                                                        
+  A hacker breaks into your database and steals the users table. They see this:
+
+  user 1:  password_hash = "$2b$10$abc123..."
+  user 2:  password_hash = "$2b$10$abc123..."
+
+  Both hashes are identical. The hacker now knows user 1 and user 2 have the same password. They only need to crack one
+  — and they get both accounts.
+
+  That is the problem salt solves.
+
+  With salt, even if user 1 and user 2 both use the password "password123" — they get completely different hashes
+  because bcrypt added a different random string to each one before hashing.
+
+  user 1:  password_hash = "$2b$10$abc123..."
+  user 2:  password_hash = "$2b$10$xyz999..."
+
+  The hacker can't tell they're the same password. They have to crack each one separately.
+
+  ---
+  Now say it back:
+
+  "Salt ensures that two users with the same password get different hashes because ___. This protects against ___."
+
+  Go.
+
+❯ salt is random string that ensure that no two have the same password  and get different hases becuase of bycrpt       
+  this protects againt hacker can you update my study_playboook what wa my weakned and what how you manage to help     
+  me uder can have to under this sytem of miine then you can come and and teacher me quiz me abiyt his sytem here       
+  ok we need own the codebase that how confident build cause in tech i heard that reputaion is evert thing ok ?         
+                                                                                                                        
+⏺ Good answer on salt. Now let me update the playbook.                                                                  
+                                                                                                                        
+⏺ Read 1 file (ctrl+o to expand)                                                                                        
+                                                                                                                        
+❯ Tool loaded.                                                                                                          
+                                                                                                                        
+⏺ Update(~/Developer/Node_js/eduair_api/study_playbook.md)                                                              
+  ⎿  Added 24 lines, removed 5 lines                                                                                    
+      124  ## Session Log                                                                                               
+      125                                                                                                               
+      126  ### Session 1 — March 6, 2026                                                                                
+      127 -Topic: authMiddleware deep dive                                                                       
+      128 -- Covered all 9 steps
+      129 -- Struggled with: Step 7 purpose, mixing up steps, saying "can" vs "cannot"
+      130 -- Breakthrough: correctly explained Step 7 after third attempt
+      131 -- Introduced: Uber auth model, refresh tokens, Redis concept
+      127 +Topic: authMiddleware + register + bcrypt
+      128
+      129 +WHAT YOU GOT RIGHT:
+      130 +- Step 7 purpose — after being pushed 3 times, nailed it cleanly
+      131 +- req.user.schoolId vs req.body.school_id — understood the cross-tenant attack
+      132 +- Salt purpose — understood it protects against identical hash exposure in DB breach
+      133 +- You think like an engineer — you asked about Uber, Redis, real-world scale
+      134 +
+      135 +WHAT YOU STRUGGLED WITH (be honest — these are your study targets):
+      136 +1. Mixing Step 7 with registration duplicate check — different files, different jobs
+      137 +2. Saying "can" instead of "cannot" — saying the opposite of what you mean under pressure
+      138 +3. "Salt is a function/method" — WRONG. Salt is a RANDOM STRING added before hashing
+      139 +4. "Salt rounds = 10 means it runs 10 times" — WRONG. It means 2^10 = 1,024 iterations
+      140 +5. Vague answers: "no limit and parse", "no random can get in" — not technical enough
+      141 +6. Connecting salt to JWT — salt has nothing to do with JWT. Keep them separate.
+      142 +
+      143 +PATTERN: You know the concepts. You lose precision under pressure.
+      144 +FIX: Slow down. One sentence. Check it. Then continue.
+      145 +
+      146 +WHAT TO DRILL BEFORE VIVA:
+      147 +- Say the 9 authMiddleware steps from memory, in order
+      148 +- Explain req.user.schoolId vs req.body in one clean sentence
+      149 +- Explain salt in one clean sentence (random string, not function)
+      150 +- Explain salt rounds in one clean sentence (2^n iterations, not n times)
+      151 +
+      152  ---
+      153
+      154  ## Redis — Plain English
+
+⏺ Update(~/Developer/Node_js/eduair_api/study_playbook.md)
+  ⎿  Added 52 lines, removed 4 lines
+      183                                                                                                               
+      184  ---
+      185                                                                                                               
+      186 +## bcrypt — What You Must Know Cold              
+      187 +
+      188 +### What is a salt?
+      189 +A salt is a RANDOM STRING that bcrypt generates and adds to the password before hashing.
+      190 +It is NOT a function. It is NOT a method. It is random data.
+      191 +
+      192 +Result: two users with the same password get completely different hashes.
+      193 +Why it matters: if a hacker steals the DB, they cannot tell who shares a password.
+      194 +They must crack every hash individually — no shortcuts.
+      195 +
+      196 +### What are salt rounds?
+      197 +Salt rounds = 10 means bcrypt runs 2^10 = 1,024 hashing iterations.
+      198 +Every +1 to the rounds doubles the work.
+      199 +Rounds 10 = 1,024 | Rounds 11 = 2,048 | Rounds 12 = 4,096
+      200 +Higher rounds = slower hash = harder brute force attack.
+      201 +Cost: makes login slightly slower (~100ms at rounds=10). Acceptable tradeoff.
+      202 +
+      203 +### What bcrypt.compare() does
+      204 +bcrypt.compare(plainPassword, storedHash)
+      205 +- Extracts the salt FROM the stored hash (bcrypt embeds it)
+      206 +- Hashes the plain password using that same salt
+      207 +- Compares result to stored hash
+      208 +- Returns true or false
+      209 +You never store the plain password. Ever.
+      210 +
+      211 +---
+      212 +
+      213 +## Viva Answer — CRITICAL FIX (updated Mar 6)
+      214 +
+      215 +Question 3 in your viva prep was WRONG. Old answer said Firebase handles auth.
+      216 +That is no longer true. Use this answer:
+      217 +
+      218 +"How does your authentication work?"
+      219 +CORRECT ANSWER:
+      220 +"I built my own authentication system using bcrypt and JWT.
+      221 +When a user logs in, the server verifies their password with bcrypt.compare(),
+      222 +then signs a JWT containing their id, role, and schoolId.
+      223 +Flutter stores the token securely using flutter_secure_storage.
+      224 +Every protected request sends the token in the Authorization header,
+      225 +and authMiddleware verifies it and checks the user still exists in the database.
+      226 +Firebase is only used for Google Sign In and future push notifications."
+      227 +
+      228 +---
+      229 +
+      230  ## Next Topics to Study
+      187 -- [ ] Refresh token implementation end to end
+      231 +- [x] authMiddleware — 9 steps (Session 1)
+      232 +- [x] register — schoolId from JWT, not body (Session 1)
+      233 +- [x] bcrypt — salt, salt rounds, compare (Session 1)
+      234 +- [ ] login — credential enumeration prevention
+      235 +- [ ] requireRole — why it's a factory function
+      236 +- [ ] Flutter interceptor — how token attaches automatically
+      237 +- [ ] Flutter startup — why getMe() is called on app launch
+      238 +- [ ] Refresh tokens — end to end
+      239  - [ ] Rate limiting with express-rate-limit
+      240  - [ ] HTTPS and why HTTP is dangerous
+      190 -- [ ] bcrypt internals — what are salt rounds actually doing
+      191 -- [ ] Flutter: how Dio interceptor attaches the token
+      192 -- [ ] Flutter: what happens on startup (getMe flow)
+
+⏺ Playbook updated. Here's what I logged honestly:
+
+  ---                                                                                                                   
+  
+                                                                                                                        

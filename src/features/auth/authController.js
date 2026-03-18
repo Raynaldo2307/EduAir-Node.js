@@ -20,3 +20,10 @@ exports.me = async (req, res, next) => {
     return res.status(200).json({ user });
   } catch (err) { next(err); }
 };
+
+exports.updateMe = async (req, res, next) => {
+  try {
+    const result = await authService.updateMe(req.user.id, req.body);
+    return res.status(200).json(result);
+  } catch (err) { next(err); }
+};

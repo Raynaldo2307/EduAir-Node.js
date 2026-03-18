@@ -17,6 +17,14 @@ router.post(
   attendanceController.clockIn
 );
 
+// POST /api/attendance/batch
+// Teacher/admin marks a whole class at once for a given date + shift
+router.post(
+  '/batch',
+  requireRole('teacher', 'admin', 'principal'),
+  attendanceController.batchClockIn
+);
+
 // ── Read ──────────────────────────────────────────────────────────────────────
 // GET /api/attendance?date=YYYY-MM-DD&shift_type=morning&class_id=1
 // Returns all attendance for the school on a given date
@@ -24,6 +32,24 @@ router.get(
   '/',
   requireRole('teacher', 'admin', 'principal'),
   attendanceController.getAttendanceBySchool
+);
+
+// GET /api/attendance/today
+// Student only — returns their own today's record using JWT identity (no studentId needed)
+// NOTE: declared before /:id to avoid 'today' matching as a numeric id
+router.get(
+  '/today',
+  requireRole('student'),
+  attendanceController.getMyToday
+);
+
+// GET /api/attendance/me?limit=14&shift_type=morning
+// Student only — returns their own history using JWT identity (no studentId needed)
+// NOTE: declared before /:id to avoid 'me' matching as a numeric id
+router.get(
+  '/me',
+  requireRole('student'),
+  attendanceController.getMyHistory
 );
 
 // GET /api/attendance/student/:studentId?limit=14&shift_type=morning

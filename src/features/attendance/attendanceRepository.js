@@ -1,17 +1,19 @@
 const pool = require('../../../config/db');
 
 // Columns returned on every SELECT — change once, updates everywhere
+// attendance_date → 'YYYY-MM-DD' string (Flutter dateKey format)
+// clock_in/out    → 'YYYY-MM-DDTHH:MM:SS' string (Dart DateTime.parse compatible)
 const ATTENDANCE_FIELDS = `
   a.id,
   a.school_id,
   a.student_id,
   a.class_id,
   a.shift_type,
-  a.attendance_date,
-  a.clock_in,
+  DATE_FORMAT(a.attendance_date, '%Y-%m-%d')                                          AS attendance_date,
+  IF(a.clock_in  IS NOT NULL, CONCAT(DATE_FORMAT(a.attendance_date, '%Y-%m-%d'), 'T', a.clock_in),  NULL) AS clock_in,
   a.clock_in_lat,
   a.clock_in_lng,
-  a.clock_out,
+  IF(a.clock_out IS NOT NULL, CONCAT(DATE_FORMAT(a.attendance_date, '%Y-%m-%d'), 'T', a.clock_out), NULL) AS clock_out,
   a.clock_out_lat,
   a.clock_out_lng,
   a.status,
@@ -123,9 +125,9 @@ async function getAttendanceBySchool(schoolId, date, filters) {
       a.id,
       a.student_id,
       a.shift_type,
-      a.attendance_date,
-      a.clock_in,
-      a.clock_out,
+      DATE_FORMAT(a.attendance_date, '%Y-%m-%d') AS attendance_date,
+      IF(a.clock_in  IS NOT NULL, CONCAT(DATE_FORMAT(a.attendance_date, '%Y-%m-%d'), 'T', a.clock_in),  NULL) AS clock_in,
+      IF(a.clock_out IS NOT NULL, CONCAT(DATE_FORMAT(a.attendance_date, '%Y-%m-%d'), 'T', a.clock_out), NULL) AS clock_out,
       a.status,
       a.is_early_leave,
       a.source,
@@ -169,9 +171,9 @@ async function getStudentHistory(studentId, schoolId, filters) {
     SELECT
       a.id,
       a.shift_type,
-      a.attendance_date,
-      a.clock_in,
-      a.clock_out,
+      DATE_FORMAT(a.attendance_date, '%Y-%m-%d') AS attendance_date,
+      IF(a.clock_in  IS NOT NULL, CONCAT(DATE_FORMAT(a.attendance_date, '%Y-%m-%d'), 'T', a.clock_in),  NULL) AS clock_in,
+      IF(a.clock_out IS NOT NULL, CONCAT(DATE_FORMAT(a.attendance_date, '%Y-%m-%d'), 'T', a.clock_out), NULL) AS clock_out,
       a.status,
       a.is_early_leave,
       a.late_reason_code,
@@ -283,6 +285,78 @@ async function deleteRecord(id, schoolId) {
   await pool.query('DELETE FROM attendance WHERE id = ? AND school_id = ?', [id, schoolId]);
 }
 
+// Fetch today's single record for a student — used by GET /api/attendance/today
+async function getTodayRecord(studentId, schoolId, shiftType) {
+  let query = `
+    SELECT
+      a.id,
+      a.shift_type,
+      DATE_FORMAT(a.attendance_date, '%Y-%m-%d') AS attendance_date,
+      IF(a.clock_in  IS NOT NULL, CONCAT(DATE_FORMAT(a.attendance_date, '%Y-%m-%d'), 'T', a.clock_in),  NULL) AS clock_in,
+      IF(a.clock_out IS NOT NULL, CONCAT(DATE_FORMAT(a.attendance_date, '%Y-%m-%d'), 'T', a.clock_out), NULL) AS clock_out,
+      a.status,
+      a.is_early_leave,
+      a.late_reason_code,
+      a.note,
+      a.source,
+      a.created_at
+    FROM attendance a
+    WHERE a.student_id = ? AND a.school_id = ? AND a.attendance_date = CURDATE()
+  `;
+  const params = [studentId, schoolId];
+
+  if (shiftType) {
+    query += ' AND a.shift_type = ?';
+    params.push(shiftType);
+  }
+
+  query += ' ORDER BY a.created_at DESC LIMIT 1';
+
+  const [rows] = await pool.query(query, params);
+  return rows[0] ?? null;
+}
+
+// Find a specific record for batch upsert — accepts conn for transaction support
+async function findRecordForDate(studentId, schoolId, date, shiftType, conn) {
+  const [rows] = await conn.query(
+    `SELECT id, status
+     FROM attendance
+     WHERE student_id = ? AND school_id = ? AND attendance_date = ? AND shift_type = ?
+     LIMIT 1`,
+    [studentId, schoolId, date, shiftType]
+  );
+  return rows[0] ?? null;
+}
+
+// INSERT a teacher batch record with an explicit date (no clock_in time)
+async function insertBatchRecord(data, conn) {
+  const {
+    schoolId, studentId, classId, userId,
+    shift_type, date, status, source, late_reason_code, note,
+  } = data;
+
+  const [result] = await conn.query(
+    `INSERT INTO attendance
+       (school_id, student_id, class_id, recorded_by_user_id,
+        shift_type, attendance_date,
+        status, source, late_reason_code, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      schoolId,
+      studentId,
+      classId          ?? null,
+      userId,
+      shift_type,
+      date,
+      status,
+      source,
+      late_reason_code ?? null,
+      note             ?? null,
+    ]
+  );
+  return result.insertId;
+}
+
 module.exports = {
   getRecord,
   getStudentByUserId,
@@ -298,4 +372,7 @@ module.exports = {
   findTodayRecord,
   deleteHistoryByAttendance,
   deleteRecord,
+  getTodayRecord,
+  findRecordForDate,
+  insertBatchRecord,
 };
