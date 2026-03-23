@@ -243,4 +243,5 @@ An `.env.example` file is included in the repository. **Never commit your `.env`
 
 ## License
 
-ISC
+This project is proprietary and private. All rights reserved.
+No part of this codebase may be copied, modified, distributed, or used without explicit written permission from the author.
