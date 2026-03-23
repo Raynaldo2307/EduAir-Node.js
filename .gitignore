@@ -16,3 +16,9 @@ Thumbs.db
 .vscode/
 
 scripts/
+
+# Personal notes, vision docs, and learning path files
+my_32_playbook.md
+study_playbook.md
+attendance.md
+BACKEND.md

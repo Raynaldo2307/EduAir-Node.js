@@ -3,7 +3,7 @@ const pool = require('../../../config/db');
 // Single source of truth for which columns we return to the client.
 // Every SELECT in this file uses this — change it once, it updates everywhere.
 const SCHOOL_FIELDS = `
-  id, name, moey_school_code, short_code, parish, school_type,
+  id, name, moey_school_code, short_code, email_domain, parish, school_type,
   is_shift_school, default_shift_type,
   latitude, longitude, radius_meters, timezone, is_active
 `;

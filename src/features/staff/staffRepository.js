@@ -244,7 +244,9 @@ async function getAllTeachers(schoolId) {
      LEFT JOIN classes c ON t.homeroom_class_id = c.id
      -- LEFT JOIN so teachers without a homeroom still appear in the list
      WHERE t.school_id = ? AND t.status = 'active'
-     -- Only return teachers from this school AND only those who are still active
+       AND u.role IN ('teacher', 'admin', 'principal')
+     -- Role guard: only users with a staff role appear in the staff list
+     -- Prevents a student record that leaked into the teachers table from showing up
      ORDER BY u.last_name ASC, u.first_name ASC`,
      // Sort alphabetically: by last name first, then first name (e.g. "Adams, John" before "Adams, Mary")
     [schoolId]
@@ -252,6 +254,26 @@ async function getAllTeachers(schoolId) {
 
   // Return the full array of teacher objects
   return rows;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// countStaffByCodePrefix(schoolId, prefix)
+// Counts how many teachers already have a staff_code starting with a given prefix.
+// WHY: Used to generate the next sequence number in a staff code.
+// Example: prefix = 'PAP-MATH' → counts PAP-MATH-001, PAP-MATH-002 etc.
+// If count = 2, the next code will be PAP-MATH-003.
+// ─────────────────────────────────────────────────────────────────────────────
+async function countStaffByCodePrefix(schoolId, prefix) {
+  const [rows] = await pool.query(
+    // LIKE 'PAP-MATH-%' matches any code that starts with 'PAP-MATH-'
+    // COUNT(*) returns how many rows matched — 0 if none exist yet
+    `SELECT COUNT(*) AS total
+     FROM teachers
+     WHERE school_id = ? AND staff_code LIKE ?`,
+    [schoolId, `${prefix}-%`]
+  );
+  // rows[0].total is the count — e.g. 2 means PAP-MATH-001 and PAP-MATH-002 exist
+  return rows[0].total;
 }
 
 // Export every function so the service layer can import and use them
@@ -264,5 +286,6 @@ module.exports = {
   updateUser,       // Update name fields in users table
   updateTeacher,    // Update staff fields in teachers table
   softDelete,       // Deactivate a teacher (set status = 'inactive')
-  getAllTeachers,    // Fetch all active teachers in a school
+  getAllTeachers,           // Fetch all active teachers in a school
+  countStaffByCodePrefix,   // Count existing codes for a prefix — used to generate next sequence
 };

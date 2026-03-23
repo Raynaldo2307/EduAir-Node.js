@@ -25,5 +25,14 @@ router.post(
   requireRole('admin', 'principal'),
   authController.register,
 );
+// Public - request a password reset code
+// Post /api/auth/forgot-password
+router.post('/forgot-password', authController.forgotPassword);
+
+// Pkublic - verify. code and set new password
+// Post /api/auth/reset-password
+router.post('/reset-password',
+authController.resetPassword);
+
 
 module.exports = router;

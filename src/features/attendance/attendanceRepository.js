@@ -357,6 +357,72 @@ async function insertBatchRecord(data, conn) {
   return result.insertId;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// getStudentsByClassForToday(classId, schoolId, shiftType)
+// Returns ALL students in a class, each with their attendance record for today
+// (if one exists). Students with no attendance yet show status = null.
+//
+// WHY this query design:
+//   The teacher opens the attendance page and sees their whole class.
+//   Students already marked show their status (present/late/absent).
+//   Unmarked students show up too — teacher can mark them.
+//   This gives the teacher a FULL picture, not just who has been marked.
+//
+// WHY LEFT JOIN on attendance:
+//   INNER JOIN would hide students with no attendance record yet.
+//   LEFT JOIN keeps every student in the result, with NULL attendance fields
+//   if they haven't been marked today.
+// ─────────────────────────────────────────────────────────────────────────────
+async function getStudentsByClassForToday(classId, schoolId, shiftType) {
+  // Build the base query — we always filter by classId, schoolId, and today's date
+  let query = `
+    SELECT
+      s.id                  AS student_id,
+      u.first_name,
+      u.last_name,
+      s.student_code,       -- e.g. PAP-2026-0001 (the student's ID number)
+      s.sex,
+      s.current_shift_type, -- The student's assigned shift (may differ from the class default)
+
+      -- Attendance fields — these will be NULL if the student hasn't been marked today
+      a.id                  AS attendance_id,
+      a.status,             -- present / late / absent / excused / null (not yet marked)
+      a.shift_type,
+      IF(a.clock_in IS NOT NULL,
+         CONCAT(DATE_FORMAT(a.attendance_date, '%Y-%m-%d'), 'T', a.clock_in),
+         NULL)              AS clock_in,
+      a.late_reason_code,
+      a.note
+
+    FROM students s
+    JOIN users u
+      ON s.user_id = u.id           -- Every student must have a linked user account
+
+    LEFT JOIN attendance a
+      ON a.student_id    = s.id
+      AND a.school_id    = ?         -- Only look at THIS school's attendance records
+      AND a.attendance_date = CURDATE() -- Only today's records
+      ${shiftType ? 'AND a.shift_type = ?' : ''}
+      -- If a shift filter is given, only show that shift's attendance record
+
+    WHERE s.homeroom_class_id = ?    -- Only students whose homeroom is this class
+      AND s.school_id         = ?    -- Multi-tenant safety — only this school's students
+      AND s.status            = 'active'
+      -- Exclude graduated or inactive students from the attendance list
+
+    ORDER BY u.last_name ASC, u.first_name ASC
+    -- Alphabetical order — standard for a class register
+  `;
+
+  // Build the params array in the same order as the ? placeholders
+  const params = [schoolId];           // First ? = school_id in the LEFT JOIN
+  if (shiftType) params.push(shiftType); // Second ? = shift_type (only if filter given)
+  params.push(classId, schoolId);      // Last two ? = homeroom_class_id and s.school_id
+
+  const [rows] = await pool.query(query, params);
+  return rows;
+}
+
 module.exports = {
   getRecord,
   getStudentByUserId,
@@ -375,4 +441,5 @@ module.exports = {
   getTodayRecord,
   findRecordForDate,
   insertBatchRecord,
+  getStudentsByClassForToday,
 };

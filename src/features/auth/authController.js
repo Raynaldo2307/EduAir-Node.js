@@ -27,3 +27,24 @@ exports.updateMe = async (req, res, next) => {
     return res.status(200).json(result);
   } catch (err) { next(err); }
 };
+
+exports.forgotPassword = async (req,res,next) =>{
+  try {
+    const result = await authService.forgotPassword(req.body.email);
+    return res.status(200).json(result);
+    
+  } catch (error) {
+    next(error);
+
+}
+};
+
+exports.resetPassword = async (req,res,next) => {
+  try{
+    const { email, code, newPassword } = req.body;
+    const result = await authService.resetPassword(email, code, newPassword);
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};

@@ -13,6 +13,8 @@ const schoolRoutes     = require('./src/features/schools/schoolsRoutes');
 const studentRoutes    = require('./src/features/students/studentsRoutes');
 const attendanceRoutes = require('./src/features/attendance/attendanceRoutes');
 const staffRoutes      = require('./src/features/staff/staffRoutes');
+// Classes routes — used for admin/teacher dropdowns when registering students/staff
+const classesRoutes    = require('./src/features/classes/classesRoutes');
 
 // app22 create the express application server
 const app = express();
@@ -45,6 +47,9 @@ app.use('/api/attendance', attendanceRoutes);
 
 // Staff routes
 app.use('/api/staff', staffRoutes);
+
+// Classes routes — GET /api/classes returns the class list for dropdown menus
+app.use('/api/classes', classesRoutes);
 
 
 // Global error handler — must be LAST, after all routes

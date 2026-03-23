@@ -1,7 +1,10 @@
 const bcrypt = require('bcryptjs');
 const jwt    = require('jsonwebtoken');
 const pool   = require('../../../config/db');
+const crypto = require('crypto');
 const AppError = require('../../../utils/AppError');
+const {sendPasswordResetEmail} = require('../../../utils/email');
+
 
 const ALLOWED_ROLES = ['student', 'teacher', 'parent', 'admin', 'principal'];
 
@@ -251,4 +254,100 @@ async function updateMe(userId, body) {
   return { message: 'Profile updated' };
 }
 
-module.exports = { login, register, getMe, updateMe };
+// Public: accepts an email, generates a 6-digit reset code, hashes it,
+// stores it in password_reset_tokens, and emails the plain code to the user.
+// Always returns the same message — email enumeration prevention.
+async function forgotPassword(email) {
+  // 1) Validate
+  if (!email) {
+    throw new AppError('Email is required', 400);
+  }
+
+  // 2) Look up user — silent return if not found (don't reveal existence)
+  const [rows] = await pool.query(
+    'SELECT id FROM users WHERE email = ? LIMIT 1',
+    [email]
+  );
+
+  if (rows.length === 0) {
+    // email enumeration prevention — same message whether email exists or not
+    return { message: 'If that email is registered you will receive a code.' };
+  }
+ 
+  const user = rows[0];
+
+  // 3) Generate a cryptographically secure 6-digit code
+  const code      = crypto.randomInt(100000, 999999).toString(); // randomInt = CSPRNG
+  const hash      = await bcrypt.hash(code, 10);                 // hash before storing
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);      // 15-minute expiry
+
+  // 4) Upsert into DB — UNIQUE on user_id means one active token per user at a time.
+  //    ON DUPLICATE KEY UPDATE silently replaces any existing token.
+  await pool.query(
+    `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE token_hash = VALUES(token_hash),
+                              expires_at = VALUES(expires_at)`,
+    [user.id, hash, expiresAt]
+  );
+
+  // 5) Email the plain code (never the hash)
+  await sendPasswordResetEmail(email, code);
+
+  return { message: 'If that email is registered you will receive a code.' };
+}
+
+// Public: verifies the 6-digit code and sets a new password.
+// Deletes the token row after use — one-time use only.
+async function resetPassword(email, code, newPassword) {
+  // 1) Validate all three fields
+  if (!email || !code || !newPassword) {
+    throw new AppError('Email, code, and new password are required', 400);
+  }
+
+  if (newPassword.length < 8) {
+    throw new AppError('Password must be at least 8 characters', 400);
+  }
+
+  // 2) Find the token row by joining on email
+  //    We need token_hash + expires_at from password_reset_tokens,
+  //    and user.id to update the password.
+  const [rows] = await pool.query(
+    `SELECT u.id AS user_id, prt.token_hash, prt.expires_at
+     FROM password_reset_tokens prt
+     JOIN users u ON u.id = prt.user_id
+     WHERE u.email = ?
+     LIMIT 1`,
+    [email]
+  );
+
+  // 3) Same error for "no token" and "expired" — don't reveal which
+  if (rows.length === 0 || new Date() > new Date(rows[0].expires_at)) {
+    throw new AppError('Invalid or expired reset code', 400);
+  }
+
+  const { user_id, token_hash } = rows[0];
+
+  // 4) Verify the submitted code against the stored hash
+  const isMatch = await bcrypt.compare(code, token_hash);
+  if (!isMatch) {
+    throw new AppError('Invalid or expired reset code', 400);
+  }
+
+  // 5) Hash the new password and update the user row
+  const newHash = await bcrypt.hash(newPassword, 10);
+  await pool.query(
+    'UPDATE users SET password_hash = ? WHERE id = ?',
+    [newHash, user_id]
+  );
+
+  // 6) Delete the token — one-use only, prevents replay attacks
+  await pool.query(
+    'DELETE FROM password_reset_tokens WHERE user_id = ?',
+    [user_id]
+  );
+
+  return { message: 'Password reset successful. You can now log in.' };
+}
+
+module.exports = { login, register, getMe, updateMe, forgotPassword, resetPassword };

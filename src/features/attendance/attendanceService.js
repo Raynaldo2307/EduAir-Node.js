@@ -592,6 +592,39 @@ async function batchClockIn(user, body) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// getClassAttendance(user, params, query)
+// Returns all students in a class, each with their attendance status for today.
+//
+// WHY this exists:
+//   This is the teacher's attendance page data source.
+//   The teacher logs in, goes to the Attendance tab, and sees THEIR class.
+//   Every student in the class appears — marked or not — so the teacher
+//   can mark those who haven't been recorded yet.
+//
+// Who can call this: teacher, admin, principal
+// classId comes from the URL: GET /api/attendance/class/1
+// schoolId comes from the JWT — the teacher cannot see another school's class
+// shift_type is an optional query param: ?shift_type=morning
+// ─────────────────────────────────────────────────────────────────────────────
+async function getClassAttendance(user, params, query) {
+  const { schoolId } = user;
+
+  // classId comes from the URL parameter (:classId)
+  const classId   = Number(params.classId);
+  const shiftType = query.shift_type || null; // Optional filter: ?shift_type=morning
+
+  // Validate that classId is actually a number (not a string like 'abc')
+  if (!classId || isNaN(classId)) {
+    throw new AppError('Invalid class ID', 400);
+  }
+
+  // Fetch all students in this class + their attendance for today
+  const students = await attendanceRepo.getStudentsByClassForToday(classId, schoolId, shiftType);
+
+  return students;
+}
+
 module.exports = {
   clockIn,
   clockOut,
@@ -602,4 +635,5 @@ module.exports = {
   getMyToday,
   getMyHistory,
   batchClockIn,
+  getClassAttendance,
 };

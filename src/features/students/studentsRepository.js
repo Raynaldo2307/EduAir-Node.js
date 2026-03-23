@@ -138,7 +138,7 @@ async function softDelete(id, schoolId) {
 }
 
 async function getAllStudents(schoolId, filters = {}) {
-  const { class_id } = filters;
+  const { class_id, order, limit } = filters;
 
   let query = `
     SELECT
@@ -159,7 +159,7 @@ async function getAllStudents(schoolId, filters = {}) {
     FROM students s
     JOIN users u ON s.user_id = u.id
     LEFT JOIN classes c ON s.homeroom_class_id = c.id
-    WHERE s.school_id = ? AND s.status = 'active'
+    WHERE s.school_id = ? AND s.status = 'active' AND u.role = 'student'
   `;
 
   const params = [schoolId];
@@ -169,7 +169,18 @@ async function getAllStudents(schoolId, filters = {}) {
     params.push(class_id);
   }
 
-  query += ' ORDER BY u.last_name ASC, u.first_name ASC';
+  // order=newest sorts by most recently enrolled first (for home screen preview)
+  // default is alphabetical for the full student list
+  if (order === 'newest') {
+    query += ' ORDER BY s.created_at DESC';
+  } else {
+    query += ' ORDER BY u.last_name ASC, u.first_name ASC';
+  }
+
+  if (limit) {
+    query += ' LIMIT ?';
+    params.push(parseInt(limit, 10));
+  }
 
   const [rows] = await pool.query(query, params);
   return rows;
@@ -218,8 +229,27 @@ async function insertBatchRecord(data, conn) {
   return result.insertId;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// countStudentsByYearPrefix(schoolId, prefix)
+// Counts how many students already have a student_code starting with a given prefix.
+// WHY: Used to generate the next sequence number in a student code.
+// Example: prefix = 'PAP-2026' → counts PAP-2026-0001, PAP-2026-0002 etc.
+// If count = 3, the next student gets PAP-2026-0004.
+// ─────────────────────────────────────────────────────────────────────────────
+async function countStudentsByYearPrefix(schoolId, prefix) {
+  const [rows] = await pool.query(
+    // LIKE 'PAP-2026-%' matches any code starting with 'PAP-2026-'
+    `SELECT COUNT(*) AS total
+     FROM students
+     WHERE school_id = ? AND student_code LIKE ?`,
+    [schoolId, `${prefix}-%`]
+  );
+  return rows[0].total;
+}
+
 module.exports = {
   getStudentById, findStudent, findUserByEmail,
   insertUser, insertStudent, updateUser, updateStudent,
   softDelete, getAllStudents, findRecordForDate, insertBatchRecord,
+  countStudentsByYearPrefix,
 };

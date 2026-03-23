@@ -52,6 +52,17 @@ router.get(
   attendanceController.getMyHistory
 );
 
+// GET /api/attendance/class/:classId?shift_type=morning
+// WHY: Teacher opens their attendance tab → app calls this with their homeroom class ID.
+// Returns every student in the class + their attendance for today (marked or not).
+// Optional ?shift_type filter: if the school runs shifts, the teacher picks which shift.
+// NOTE: declared before /:id routes to prevent 'class' being treated as a numeric id.
+router.get(
+  '/class/:classId',
+  requireRole('teacher', 'admin', 'principal'),
+  attendanceController.getClassAttendance
+);
+
 // GET /api/attendance/student/:studentId?limit=14&shift_type=morning
 // Student: own records only | Teacher/admin/principal: any student in school
 // NOTE: must be declared before /:id routes to avoid 'student' matching as an id

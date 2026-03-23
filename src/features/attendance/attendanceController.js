@@ -66,6 +66,21 @@ exports.batchClockIn = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// GET /api/attendance/class/:classId
+// WHY: The teacher attendance page calls this to load their class register.
+// Returns all students in the class + today's attendance status for each one.
+// Students not yet marked appear too (status = null) — teacher marks them from here.
+exports.getClassAttendance = async (req, res, next) => {
+  try {
+    const students = await attendanceService.getClassAttendance(req.user, req.params, req.query);
+    res.status(200).json({
+      message: 'Class attendance fetched successfully',
+      count:   students.length,
+      data:    students,
+    });
+  } catch (err) { next(err); }
+};
+
 // GET /api/attendance/today  — student's own today record (JWT-resolved)
 exports.getMyToday = async (req, res, next) => {
   try {
