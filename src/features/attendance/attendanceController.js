@@ -100,3 +100,13 @@ exports.getMyHistory = async (req, res, next) => {
     });
   } catch (err) { next(err); }
 };
+
+// GET /api/attendance/stats?date=YYYY-MM-DD                                                                                                                  
+  exports.getStats = async (req, res, next) => {
+    try {                                                                                                                                                       
+      const schoolId = req.user.schoolId;
+      const date = req.query.date || new Date().toISOString().slice(0, 10);                                                                                     
+      const stats = await attendanceService.getStats(schoolId, date);
+      return res.status(200).json({ message: 'Stats fetched', data: stats });                                                                                   
+    } catch (err) { next(err); }
+  };

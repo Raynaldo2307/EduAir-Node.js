@@ -423,6 +423,20 @@ async function getStudentsByClassForToday(classId, schoolId, shiftType) {
   return rows;
 }
 
+ async function getStatsByDate(schoolId, date) {
+    const [rows] = await pool.query(                                                                                                                                 `SELECT                                                                                                                                                   
+         COUNT(CASE WHEN status IN ('present', 'early') THEN 1 END) AS present,
+         COUNT(CASE WHEN status = 'late'    THEN 1 END)             AS late,                                                                                    
+         COUNT(CASE WHEN status = 'absent'  THEN 1 END)             AS absent,                                                                                  
+         COUNT(CASE WHEN status = 'excused' THEN 1 END)             AS excused,
+         COUNT(*)                                                    AS total_marked                                                                            
+       FROM attendance
+       WHERE school_id = ? AND attendance_date = ?`,                                                                                                            
+      [schoolId, date]
+    );
+    return rows[0];
+  }  
+
 module.exports = {
   getRecord,
   getStudentByUserId,
@@ -442,4 +456,5 @@ module.exports = {
   findRecordForDate,
   insertBatchRecord,
   getStudentsByClassForToday,
+  getStatsByDate,
 };

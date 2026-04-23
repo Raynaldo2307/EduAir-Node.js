@@ -625,6 +625,14 @@ async function getClassAttendance(user, params, query) {
   return students;
 }
 
+// GET ATTENDANCE STATS
+// Returns a count of each status (present, late, absent, excused) for a school on a date.
+// schoolId comes from the JWT (never the request body).
+// Called by: attendanceController.getStats → GET /api/attendance/stats
+async function getStats(schoolId, date) {
+  return attendanceRepo.getStatsByDate(schoolId, date);
+}
+
 module.exports = {
   clockIn,
   clockOut,
@@ -636,4 +644,5 @@ module.exports = {
   getMyHistory,
   batchClockIn,
   getClassAttendance,
+  getStats
 };

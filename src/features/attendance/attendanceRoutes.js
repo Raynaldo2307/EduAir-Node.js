@@ -62,6 +62,19 @@ router.get(
   requireRole('teacher', 'admin', 'principal'),
   attendanceController.getClassAttendance
 );
+ 
+
+// GET /api/attendance/stats?date=YYYY-MM-DD
+// Returns present/late/absent/excused counts for the school on a given date.
+// date defaults to today (Jamaica time) if not supplied.
+// school_id comes from the JWT — admin can only see their own school.
+// Used by: admin dashboard stat cards (Today Present, Absent Today).
+router.get(
+  '/stats',
+  requireRole('admin', 'principal'),
+  attendanceController.getStats
+);
+
 
 // GET /api/attendance/student/:studentId?limit=14&shift_type=morning
 // Student: own records only | Teacher/admin/principal: any student in school
