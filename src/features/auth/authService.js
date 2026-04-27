@@ -16,10 +16,11 @@ async function login(email, password) {
     throw new AppError('Email and password are required', 400);
   }
 
-  // 2) Find user by email — join both students and teachers so either role
+  // 2) Find user by email join both students and teachers so either role
   //    gets their class info in one query.
   const [rows] = await pool.query(
     `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.role, u.school_id,
+            u.must_change_password,
             s.default_shift_type, s.is_shift_school,
             st.student_code, st.current_shift_type AS student_shift_type, st.sex,
             sc.id   AS class_id,   sc.name  AS class_name,   sc.grade_level,
@@ -89,8 +90,9 @@ async function login(email, password) {
       className:        user.class_name                  ?? null,
       gradeLevel:       user.grade_level?.toString()     ?? null,
       // Teacher fields
-      homeroomClassId:   user.teacher_homeroom_class_id?.toString() ?? null,
-      homeroomClassName: user.teacher_homeroom_class_name           ?? null,
+      homeroomClassId:    user.teacher_homeroom_class_id?.toString() ?? null,
+      homeroomClassName:  user.teacher_homeroom_class_name           ?? null,
+      mustChangePassword: user.must_change_password === 1,
     },
   };
 }
@@ -133,15 +135,14 @@ async function register(schoolId, body) {
   const saltRounds = 10;
   const passwordHash = await bcrypt.hash(password, saltRounds);
 
-  // 5) Insert user into DB  no is_active column in users table
+  // 5) Insert user into DB — must_change_password = 1 so they are forced to set
+  //    their own password on first login (admin created their credentials).
   let result;
   try {
     [result] = await pool.query(
       `INSERT INTO users
-        (email, password_hash, first_name, last_name, role, school_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-       // INSERT INTO users — inserts with the hashed password, never the plain one
-       // School id never come from the request body
+        (email, password_hash, first_name, last_name, role, school_id, must_change_password)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
       [email, passwordHash, first_name, last_name, role, schoolId]
     );
   } catch (err) {
@@ -168,6 +169,7 @@ async function register(schoolId, body) {
 async function getMe(userId) {
   const [rows] = await pool.query(
     `SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.school_id,
+            u.must_change_password,
             s.default_shift_type, s.is_shift_school,
             st.student_code, st.current_shift_type AS student_shift_type, st.sex,
             sc.id   AS class_id,   sc.name  AS class_name,   sc.grade_level,
@@ -207,8 +209,9 @@ async function getMe(userId) {
     className:        user.class_name                  ?? null,
     gradeLevel:       user.grade_level?.toString()     ?? null,
     // Teacher fields
-    homeroomClassId:   user.teacher_homeroom_class_id?.toString() ?? null,
-    homeroomClassName: user.teacher_homeroom_class_name           ?? null,
+    homeroomClassId:    user.teacher_homeroom_class_id?.toString() ?? null,
+    homeroomClassName:  user.teacher_homeroom_class_name           ?? null,
+    mustChangePassword: user.must_change_password === 1,
   };
 }
 
@@ -350,4 +353,32 @@ async function resetPassword(email, code, newPassword) {
   return { message: 'Password reset successful. You can now log in.' };
 }
 
-module.exports = { login, register, getMe, updateMe, forgotPassword, resetPassword };
+// Protected: any logged-in user changes their own password.
+// Also clears must_change_password — so the forced-change gate never fires again.
+async function changePassword(userId, currentPassword, newPassword) {
+  if (!currentPassword || !newPassword) {
+    throw new AppError('Current password and new password are required', 400);
+  }
+  if (newPassword.length < 8) {
+    throw new AppError('New password must be at least 8 characters', 400);
+  }
+
+  const [rows] = await pool.query(
+    'SELECT password_hash FROM users WHERE id = ? LIMIT 1',
+    [userId]
+  );
+  if (rows.length === 0) throw new AppError('User not found', 404);
+
+  const isMatch = await bcrypt.compare(currentPassword, rows[0].password_hash);
+  if (!isMatch) throw new AppError('Current password is incorrect', 401);
+
+  const newHash = await bcrypt.hash(newPassword, 10);
+  await pool.query(
+    'UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?',
+    [newHash, userId]
+  );
+
+  return { message: 'Password changed successfully' };
+}
+
+module.exports = { login, register, getMe, updateMe, forgotPassword, resetPassword, changePassword };

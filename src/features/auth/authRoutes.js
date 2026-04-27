@@ -29,10 +29,11 @@ router.post(
 // Post /api/auth/forgot-password
 router.post('/forgot-password', authController.forgotPassword);
 
-// Pkublic - verify. code and set new password
-// Post /api/auth/reset-password
-router.post('/reset-password',
-authController.resetPassword);
+// Public - verify code and set new password
+router.post('/reset-password', authController.resetPassword);
 
+// Protected — any logged-in user changes their own password (clears must_change_password)
+// PUT /api/auth/change-password
+router.put('/change-password', authenticate, authController.changePassword);
 
 module.exports = router;

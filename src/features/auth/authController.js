@@ -48,3 +48,11 @@ exports.resetPassword = async (req,res,next) => {
     next(error);
   }
 };
+
+exports.changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const result = await authService.changePassword(req.user.id, currentPassword, newPassword);
+    return res.status(200).json(result);
+  } catch (err) { next(err); }
+};
